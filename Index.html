@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Domicilios Cartagena</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; font-size: 24px; text-align: center; }
+        h2 { font-size: 18px; color: #666; margin-top: 20px; }
+        input, select, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        button { background: #25D366; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; cursor: pointer; margin: 5px 0; width: 100%; }
+        button.rojo { background: #dc3545; }
+        button.azul { background: #007bff; }
+        .resumen { background: #e3f2fd; padding: 15px; border-radius: 10px; margin: 15px 0; text-align: center; }
+        .pedido { background: #f9f9f9; margin: 10px 0; padding: 15px; border-radius: 10px; border-left: 4px solid #ff9800; }
+        .pedido.despachado { border-left-color: #4caf50; opacity: 0.7; }
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; margin: 5px 0; }
+        .pendiente { background: #ff9800; color: white; }
+        .despachado-badge { background: #4caf50; color: white; }
+        .acciones button { width: auto; margin: 5px 5px 0 0; padding: 8px 15px; font-size: 14px; }
+        .error { color: red; font-size: 12px; margin-top: -5px; margin-bottom: 10px; }
+        .exito { color: green; font-size: 14px; text-align: center; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📦 Domicilios Cartagena</h1>
+        
+        <div id="resumen" class="resumen">Cargando...</div>
+        
+        <button id="adminBtn" class="azul" style="background:#6c757d;">🔧 Admin: Cambiar límite de peso</button>
+        
+        <h2>📝 Registrar nuevo pedido</h2>
+        <form id="pedidoForm">
+            <input type="text" id="numero" placeholder="Número de pedido" required>
+            <input type="text" id="cliente" placeholder="Nombre del cliente" required>
+            <input type="text" id="asesor" placeholder="Nombre del asesor" required>
+            <input type="text" id="direccion" placeholder="Dirección (Ej: Cra 10, Manga)" required>
+            <select id="barrio" required>
+                <option value="">Seleccionar barrio</option>
+                <option value="centro">Centro</option>
+                <option value="manga">Manga</option>
+                <option value="castillogrande">Castillo Grande</option>
+                <option value="laguito">Laguito</option>
+                <option value="bocagrande">Bocagrande</option>
+                <option value="elbosque">El Bosque</option>
+                <option value="piezelcerro">Pie del Cerro</option>
+                <option value="ternera">Ternera</option>
+                <option value="chambacu">Chambacú</option>
+                <option value="laesperanza">La Esperanza</option>
+                <option value="otros">Otros</option>
+            </select>
+            <input type="tel" id="telefono" placeholder="Teléfono (10 dígitos, sin 57)" required>
+            <input type="number" id="flete" placeholder="Valor del flete" step="1000" required>
+            <input type="number" id="peso" placeholder="Peso (toneladas)" step="0.1" required>
+            <textarea id="observaciones" placeholder="Observaciones logísticas" rows="2"></textarea>
+            <button type="submit">✅ Registrar pedido</button>
+        </form>
+        
+        <h2>🚚 Pedidos activos</h2>
+        <div id="listaPedidos"></div>
+        
+        <h2>🗺️ Ruta optimizada por barrio</h2>
+        <button id="optimizarBtn" class="azul">🔄 Ver orden de entrega</button>
+        <div id="rutaOptimizada" style="background:#f0f0f0; padding:15px; border-radius:10px; margin-top:10px;"></div>
+    </div>
+
+    <script>
+        let pedidosCache = [];
+        
+        function guardarPedidos() {
+            localStorage.setItem('pedidos', JSON.stringify(pedidosCache));
+        }
+        
+        function cargarPedidosStorage() {
+            const guardados = localStorage.getItem('pedidos');
+            if(guardados) {
+                pedidosCache = JSON.parse(guardados);
+                return true;
+            }
+            return false;
+        }
+        
+        function getPesoLimite() {
+            return parseFloat(localStorage.getItem('pesoLimite') || '6');
+        }
+        
+        function setPesoLimite(nuevoLimite) {
+            localStorage.setItem('pesoLimite', nuevoLimite);
+            actualizarResumen();
+        }
+        
+        async function actualizarResumen() {
+            const pendientes = pedidosCache.filter(p => p.estado !== 'despachado');
+            const pesoActual = pendientes.reduce((sum, p) => sum + p.peso, 0);
+            const fletesTotal = pendientes.reduce((sum, p) => sum + p.flete, 0);
+            const limite = getPesoLimite();
+            document.getElementById('resumen').innerHTML = `
+                ⚖️ Peso actual: ${pesoActual.toFixed(1)} / ${limite} toneladas<br>
+                💰 Fletes pendientes: $${fletesTotal.toLocaleString()}<br>
+                📦 Pedidos activos: ${pendientes.length}
+                ${pesoActual >= limite ? '<br><span style="color:red;">⚠️ LÍMITE ALCANZADO - No se pueden registrar más pedidos</span>' : ''}
+            `;
+            return pesoActual >= limite;
+        }
+        
+        async function listarPedidos() {
+            const pendientes = pedidosCache.filter(p => p.estado !== 'despachado');
+            const despachados = pedidosCache.filter(p => p.estado === 'despachado');
+            const todos = [...pendientes, ...despachados];
+            
+            const listaDiv = document.getElementById('listaPedidos');
+            listaDiv.innerHTML = todos.map(p => `
+                <div class="pedido ${p.estado === 'despachado' ? 'despachado' : ''}">
+                    <strong>#${p.numero}</strong> - ${p.cliente}<br>
+                    📍 ${p.direccion} (${p.barrio})<br>
+                    📞 ${p.telefono}<br>
+                    ⚖️ ${p.peso} ton | 💰 $${p.flete.toLocaleString()}<br>
+                    📝 ${p.observaciones || 'Sin observaciones'}<br>
+                    <span class="badge ${p.estado === 'despachado' ? 'despachado-badge' : 'pendiente'}">${p.estado === 'despachado' ? '✅ DESPACHADO' : '⏳ PENDIENTE'}</span>
+                    ${p.reprogramado ? `<br>📅 Reprogramado: ${p.reprogramado}` : ''}
+                    <div class="acciones">
+                        ${p.estado !== 'despachado' ? `<button onclick="despachar('${p.id}')">✅ Despachar</button>` : ''}
+                        <button onclick="reprogramar('${p.id}')">📅 Reprogramar</button>
+                        <button onclick="notificarWhatsApp('${p.id}')">📱 Notificar</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function despachar(id) {
+            const index = pedidosCache.findIndex(p => p.id === id);
+            if(index !== -1) {
+                pedidosCache[index].estado = 'despachado';
+                guardarPedidos();
+                listarPedidos();
+                actualizarResumen();
+            }
+        }
+        
+        function reprogramar(id) {
+            const fecha = prompt('Nueva fecha para reprogramar (DD/MM/AAAA):');
+            if(fecha) {
+                const index = pedidosCache.findIndex(p => p.id === id);
+                if(index !== -1) {
+                    pedidosCache[index].reprogramado = fecha;
+                    guardarPedidos();
+                    listarPedidos();
+                }
+            }
+        }
+        
+        function notificarWhatsApp(id) {
+            const pedido = pedidosCache.find(p => p.id === id);
+            if(pedido) {
+                const mensaje = `🛵 *¡Tu pedido está en camino!*%0a%0aHola ${pedido.cliente}, tu pedido #${pedido.numero} ha sido despachado.%0aPor favor, estate muy pendiente de tu domicilio.%0a%0a¡Gracias por preferirnos! 🙌`;
+                const numero = `57${pedido.telefono}`;
+                window.open(`https://wa.me/${numero}?text=${mensaje}`, '_blank');
+            }
+        }
+        
+        function optimizarRuta() {
+            const pendientes = pedidosCache.filter(p => p.estado !== 'despachado');
+            
+            const ordenBarrios = [
+                'centro', 'manga', 'castillogrande', 'laguito', 'bocagrande',
+                'elbosque', 'piezelcerro', 'ternera', 'chambacu', 'laesperanza', 'otros'
+            ];
+            
+            const ordenados = [...pendientes].sort((a, b) => {
+                return ordenBarrios.indexOf(a.barrio) - ordenBarrios.indexOf(b.barrio);
+            });
+            
+            const rutaDiv = document.getElementById('rutaOptimizada');
+            if(ordenados.length === 0) {
+                rutaDiv.innerHTML = 'No hay pedidos pendientes';
+                return;
+            }
+            
+            rutaDiv.innerHTML = '<strong>🗺️ Orden de entrega optimizado:</strong><br><br>';
+            ordenados.forEach((p, idx) => {
+                rutaDiv.innerHTML += `${idx+1}. ${p.cliente} - ${p.barrio.toUpperCase()} (${p.direccion})<br>`;
+            });
+            rutaDiv.innerHTML += '<br><span style="font-size:12px;">✅ Rutas ordenadas por proximidad de barrios</span>';
+        }
+        
+        document.getElementById('pedidoForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const pesoActual = pedidosCache.filter(p => p.estado !== 'despachado').reduce((sum, p) => sum + p.peso, 0);
+            const nuevoPeso = parseFloat(document.getElementById('peso').value);
+            const limite = getPesoLimite();
+            
+            if(pesoActual + nuevoPeso > limite) {
+                alert(`❌ Límite de ${limite} toneladas alcanzado. No se puede registrar este pedido.`);
+                return;
+            }
+            
+            const nuevoPedido = {
+                id: Date.now().toString(),
+                numero: document.getElementById('numero').value,
+                cliente: document.getElementById('cliente').value,
+                asesor: document.getElementById('asesor').value,
+                direccion: document.getElementById('direccion').value,
+                barrio: document.getElementById('barrio').value,
+                telefono: document.getElementById('telefono').value,
+                flete: parseFloat(document.getElementById('flete').value),
+                peso: nuevoPeso,
+                observaciones: document.getElementById('observaciones').value,
+                estado: 'pendiente',
+                reprogramado: null
+            };
+            
+            pedidosCache.unshift(nuevoPedido);
+            guardarPedidos();
+            
+            document.getElementById('pedidoForm').reset();
+            listarPedidos();
+            actualizarResumen();
+            alert('✅ Pedido registrado exitosamente');
+        });
+        
+        document.getElementById('optimizarBtn').addEventListener('click', optimizarRuta);
+        
+        document.getElementById('adminBtn').addEventListener('click', () => {
+            const nuevoLimite = prompt('Ingrese nuevo límite de peso en toneladas (actual: ' + getPesoLimite() + '):', '8');
+            if(nuevoLimite && !isNaN(nuevoLimite)) {
+                setPesoLimite(parseFloat(nuevoLimite));
+                alert(`✅ Límite actualizado a ${nuevoLimite} toneladas`);
+            }
+        });
+        
+        if(!cargarPedidosStorage()) {
+            pedidosCache = [];
+        }
+        listarPedidos();
+        actualizarResumen();
+    </script>
+</body>
+</html>
